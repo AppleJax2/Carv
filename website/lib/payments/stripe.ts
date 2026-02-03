@@ -24,11 +24,15 @@ export function getStripe(): Stripe {
 }
 
 // Keep for backwards compatibility but use lazy getter
-export const stripe = new Proxy({} as Stripe, {
-  get(target, prop) {
-    return getStripe()[prop as keyof Stripe];
-  }
-});
+export const stripe = {
+  get checkout() { return getStripe().checkout; },
+  get billingPortal() { return getStripe().billingPortal; },
+  get products() { return getStripe().products; },
+  get prices() { return getStripe().prices; },
+  get subscriptions() { return getStripe().subscriptions; },
+  get customers() { return getStripe().customers; },
+  get webhooks() { return getStripe().webhooks; },
+};
 
 export async function createCheckoutSession({
   team,
