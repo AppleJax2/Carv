@@ -1,14 +1,16 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import path from 'path'
 import { SerialManager } from './serial/SerialManager'
 import { GrblController } from './grbl/GrblController'
 import { Store } from './store/Store'
+import { AuthStore } from './auth/AuthStore'
 
 let mainWindow: BrowserWindow | null = null
 let serialManager: SerialManager
 let grblController: GrblController | null = null
 let store: Store
+let authStore: AuthStore
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
@@ -65,6 +67,18 @@ function setupAutoUpdater() {
 function setupIPC() {
   ipcMain.handle('serial:list-ports', async () => {
     return serialManager.listPorts()
+  })
+
+  ipcMain.handle('serial:start-port-polling', async () => {
+    serialManager.startPortPolling((ports) => {
+      mainWindow?.webContents.send('serial:ports-changed', ports)
+    })
+    return { success: true }
+  })
+
+  ipcMain.handle('serial:stop-port-polling', async () => {
+    serialManager.stopPortPolling()
+    return { success: true }
   })
 
   ipcMain.handle('serial:connect', async (_, portPath: string, baudRate: number) => {
@@ -228,11 +242,96 @@ function setupIPC() {
   ipcMain.handle('updater:install', async () => {
     autoUpdater.quitAndInstall()
   })
+
+  // ============================================
+  // Auth IPC Handlers
+  // ============================================
+
+  ipcMain.handle('auth:get-state', async () => {
+    return authStore.getAuthState()
+  })
+
+  ipcMain.handle('auth:is-logged-in', async () => {
+    return authStore.isLoggedIn()
+  })
+
+  ipcMain.handle('auth:login', async (_, email: string, password: string) => {
+    const machineId = getMachineId()
+    return authStore.login(email, password, machineId)
+  })
+
+  ipcMain.handle('auth:verify', async () => {
+    return authStore.verifyToken()
+  })
+
+  ipcMain.handle('auth:refresh', async () => {
+    return authStore.refreshToken()
+  })
+
+  ipcMain.handle('auth:logout', async () => {
+    authStore.logout()
+    return { success: true }
+  })
+
+  ipcMain.handle('auth:can-access-offline', async () => {
+    return authStore.canAccessOffline()
+  })
+
+  // ============================================
+  // Shell IPC Handlers
+  // ============================================
+
+  ipcMain.handle('shell:open-external', async (_, url: string) => {
+    // Only allow http/https URLs for security
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      await shell.openExternal(url)
+      return { success: true }
+    }
+    return { success: false, error: 'Invalid URL protocol' }
+  })
+}
+
+// Generate a unique machine ID for license binding
+function getMachineId(): string {
+  const os = require('os')
+  const crypto = require('crypto')
+  
+  const cpus = os.cpus()
+  const networkInterfaces = os.networkInterfaces()
+  
+  // Find a valid MAC address
+  let macAddress = 'unknown'
+  for (const interfaces of Object.values(networkInterfaces)) {
+    if (interfaces) {
+      for (const iface of interfaces as any[]) {
+        if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
+          macAddress = iface.mac
+          break
+        }
+      }
+    }
+    if (macAddress !== 'unknown') break
+  }
+  
+  // Create a fingerprint from hardware info
+  const fingerprint = [
+    os.hostname(),
+    os.platform(),
+    os.arch(),
+    cpus[0]?.model || 'unknown',
+    macAddress,
+  ].join('|')
+  
+  return crypto.createHash('sha256').update(fingerprint).digest('hex').substring(0, 32)
 }
 
 app.whenReady().then(() => {
   store = new Store()
+  authStore = new AuthStore()
   serialManager = new SerialManager()
+  
+  // Hide the default Electron menu - we use a custom in-app menu bar
+  Menu.setApplicationMenu(null)
   
   setupIPC()
   setupAutoUpdater()

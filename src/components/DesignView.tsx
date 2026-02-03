@@ -3,9 +3,7 @@ import { useDesignStore } from '@/store/useDesignStore'
 import { useMachineStore } from '@/store/useMachineStore'
 import { DesignCanvas } from './DesignCanvas'
 import { DesignToolbar } from './DesignToolbar'
-import { LayersPanel } from './LayersPanel'
-import { MachineSetup } from './MachineSetup'
-import { PropertiesPanel } from './PropertiesPanel'
+import { RightSidebar } from './RightSidebar'
 import { ToolpathPanel } from './ToolpathPanel'
 import { ImportDialog } from './ImportDialog'
 import { ToolLibrary } from './ToolLibrary'
@@ -19,6 +17,17 @@ import { Workspace3D } from './Workspace3D'
 import { NewProjectDialog } from './NewProjectDialog'
 import { AutoSaveIndicator } from './AutoSaveIndicator'
 import { ResizableHandle } from './ui/resizable-panel'
+import { CarveSettingsPanel } from './CarveSettingsPanel'
+import { BitEditor } from './BitEditor'
+import { CarvePreview } from './CarvePreview'
+import { PreCarveWizard } from './PreCarveWizard'
+import { ProbeModule } from './ProbeModule'
+import { MenuBar } from './MenuBar'
+import { DesignModeToolbar, ManufactureModeToolbar, ModeSwitcher, WorkspaceMode } from './CADToolbar'
+import { MaterialPreviewModal } from './MaterialPreviewModal'
+import { QuickSetupWizard } from './QuickSetupWizard'
+import { MachineSetup } from './MachineSetup'
+import type { Tool } from '@/types/machine'
 import {
   BoxMaker,
   PuzzleDesigner,
@@ -35,25 +44,16 @@ import {
   CelticKnotGenerator,
   HalftoneGenerator,
 } from './apps'
+import { formatDimension } from '@/lib/utils'
 import { Button } from './ui/button'
 import { CarvLogoInline } from './CarvLogo'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { 
-  Settings2, 
   Wrench, 
-  FolderOpen, 
-  Save, 
-  FileDown,
-  FileUp,
   Plus,
-  Route,
-  Play,
-  Package,
-  Box,
-  Library,
-  Puzzle,
   Layers,
-  Box as Box3D
+  Box as Box3D,
+  FolderOpen,
 } from 'lucide-react'
 import { DEFAULT_TOOLS, DEFAULT_MATERIALS } from '@/types/machine'
 import { saveProjectToFile, loadProjectFromFile } from '@/lib/projectManager'
@@ -76,6 +76,24 @@ export function DesignView({ onSwitchToControl }: DesignViewProps) {
   const [activeApp, setActiveApp] = useState<string | null>(null)
   const [rightPanelWidth, setRightPanelWidth] = useState(256)
   const [toolpathPanelWidth, setToolpathPanelWidth] = useState(320)
+  const [showCarveSettings, setShowCarveSettings] = useState(false)
+  const [showBitEditor, setShowBitEditor] = useState(false)
+  const [editingBit, setEditingBit] = useState<Tool | null>(null)
+  const [showCarvePreview, setShowCarvePreview] = useState(false)
+  const [showPreCarveWizard, setShowPreCarveWizard] = useState(false)
+  const [showQuickSetup, setShowQuickSetup] = useState(false)
+  const [showProbeModule, setShowProbeModule] = useState(false)
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('design')
+  const [showMaterialPreview, setShowMaterialPreview] = useState(false)
+  const [carveSettings, setCarveSettings] = useState({
+    materialWidth: 300,
+    materialHeight: 300,
+    materialThickness: 18,
+    materialColor: '#8B4513',
+    useTwoBits: false,
+    roughingBitId: null as string | null,
+    finishingBitId: null as string | null,
+  })
   
   const {
     project,
@@ -240,121 +258,101 @@ export function DesignView({ onSwitchToControl }: DesignViewProps) {
 
   return (
     <div className="h-full flex flex-col noise-overlay">
-      <div className="h-12 px-4 flex items-center justify-between border-b border-border bg-card/80 backdrop-blur-sm">
-        <div className="flex items-center gap-4">
-          <CarvLogoInline />
-          <div className="h-6 w-px bg-border/50" />
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" onClick={() => setShowNewProjectDialog(true)}>
-              <Plus className="w-4 h-4 mr-1" />
-              New
-            </Button>
-            <Button variant="ghost" size="sm" onClick={handleOpenProject}>
-              <FolderOpen className="w-4 h-4 mr-1" />
-              Open
-            </Button>
-            <Button variant="ghost" size="sm" disabled={!project} onClick={handleSaveProject}>
-              <Save className="w-4 h-4 mr-1" />
-              Save
-            </Button>
-            <Button variant="ghost" size="sm" disabled={!project} onClick={() => setShowExportDialog(true)}>
-              <FileDown className="w-4 h-4 mr-1" />
-              Export
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setShowImportDialog(true)} disabled={!project}>
-              <FileUp className="w-4 h-4 mr-1" />
-              Import
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setShowSTLImport(true)} disabled={!project}>
-              <Box className="w-4 h-4 mr-1" />
-              3D
-            </Button>
-            <div className="h-4 w-px bg-border mx-1" />
-            <Button variant="ghost" size="sm" onClick={() => setShowDesignLibrary(true)}>
-              <Library className="w-4 h-4 mr-1" />
-              Designs
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setShowAppLibrary(true)}>
-              <Puzzle className="w-4 h-4 mr-1" />
-              Apps
+      {/* Menu Bar */}
+      <MenuBar
+        onNewProject={() => setShowNewProjectDialog(true)}
+        onOpenProject={handleOpenProject}
+        onSaveProject={handleSaveProject}
+        onExportGcode={() => setShowExportDialog(true)}
+        onImportFile={() => setShowImportDialog(true)}
+        onImport3D={() => setShowSTLImport(true)}
+        onShowToolLibrary={() => setShowToolLibrary(true)}
+        onShowMachineSetup={() => setShowMachineSetup(true)}
+        onShowToolpaths={() => setShowToolpathPanel(!showToolpathPanel)}
+        onShowSimulation={() => setShowSimulation(true)}
+        onShowDesignLibrary={() => setShowDesignLibrary(true)}
+        onShowAppLibrary={() => setShowAppLibrary(true)}
+        onSwitchToControl={onSwitchToControl}
+        onShowProbe={() => setShowProbeModule(true)}
+        viewMode={viewMode}
+        onSetViewMode={setViewMode}
+        showToolpathPanel={showToolpathPanel}
+      />
+
+      {/* CAD Toolbar - Fusion 360 Style */}
+      <div className="border-b border-border bg-card/80 backdrop-blur-sm">
+        {/* Top row: Logo, Mode Switcher, Project Info, Actions */}
+        <div className="h-10 px-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <CarvLogoInline />
+            <div className="h-5 w-px bg-border/50" />
+            <ModeSwitcher mode={workspaceMode} onModeChange={setWorkspaceMode} />
+          </div>
+
+          <div className="flex items-center gap-2">
+            {project && (
+              <>
+                <div className="flex rounded-md border border-border overflow-hidden">
+                  <Button
+                    variant={viewMode === '2d' ? 'default' : 'ghost'}
+                    size="sm"
+                    className="rounded-none border-0 h-7 px-2"
+                    onClick={() => setViewMode('2d')}
+                  >
+                    <Layers className="w-3.5 h-3.5 mr-1" />
+                    2D
+                  </Button>
+                  <Button
+                    variant={viewMode === '3d' ? 'default' : 'ghost'}
+                    size="sm"
+                    className="rounded-none border-0 h-7 px-2"
+                    onClick={() => setViewMode('3d')}
+                  >
+                    <Box3D className="w-3.5 h-3.5 mr-1" />
+                    3D
+                  </Button>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {project.name} — {formatDimension(project.canvas.width, project.canvas.unit, { showUnit: false })} × {formatDimension(project.canvas.height, project.canvas.unit)} 
+                </span>
+                <AutoSaveIndicator />
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <ThemeSwitcher variant="dropdown" />
+            <Button 
+              variant="default" 
+              size="sm"
+              className="h-7"
+              onClick={onSwitchToControl}
+            >
+              <Wrench className="w-3.5 h-3.5 mr-1" />
+              Control
             </Button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {project && (
-            <>
-              <div className="flex rounded-md border border-border overflow-hidden">
-                <Button
-                  variant={viewMode === '2d' ? 'default' : 'ghost'}
-                  size="sm"
-                  className="rounded-none border-0"
-                  onClick={() => setViewMode('2d')}
-                >
-                  <Layers className="w-4 h-4 mr-1" />
-                  2D
-                </Button>
-                <Button
-                  variant={viewMode === '3d' ? 'default' : 'ghost'}
-                  size="sm"
-                  className="rounded-none border-0"
-                  onClick={() => setViewMode('3d')}
-                >
-                  <Box3D className="w-4 h-4 mr-1" />
-                  3D
-                </Button>
-              </div>
-              <span className="text-sm text-muted-foreground">
-                {project.name} — {project.canvas.width} × {project.canvas.height} mm
-              </span>
-              <AutoSaveIndicator />
-            </>
+        {/* Bottom row: Mode-specific toolbar */}
+        <div className="h-10 px-1 flex items-center border-t border-border/50 bg-muted/30">
+          {workspaceMode === 'design' ? (
+            <DesignModeToolbar
+              onShowImport={() => setShowImportDialog(true)}
+              onShowImport3D={() => setShowSTLImport(true)}
+              onShowDesignLibrary={() => setShowDesignLibrary(true)}
+              onShowAppLibrary={() => setShowAppLibrary(true)}
+              onShowPreview={() => setShowMaterialPreview(true)}
+            />
+          ) : (
+            <ManufactureModeToolbar
+              onShowToolLibrary={() => setShowToolLibrary(true)}
+              onShowSetup={() => setShowMachineSetup(true)}
+              onShowSimulation={() => setShowSimulation(true)}
+              onShowExport={() => setShowExportDialog(true)}
+              onShowProbe={() => setShowProbeModule(true)}
+            />
           )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={() => setShowToolLibrary(true)}
-          >
-            <Package className="w-4 h-4 mr-1" />
-            Tools
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={() => setShowToolpathPanel(!showToolpathPanel)}
-          >
-            <Route className="w-4 h-4 mr-1" />
-            Toolpaths
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm"
-            disabled={!project || project.toolpaths.length === 0}
-            onClick={() => setShowSimulation(true)}
-          >
-            <Play className="w-4 h-4 mr-1" />
-            Simulate
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={() => setShowMachineSetup(true)}
-          >
-            <Settings2 className="w-4 h-4 mr-1" />
-            Machine Setup
-          </Button>
-          <ThemeSwitcher variant="dropdown" />
-          <Button 
-            variant="default" 
-            size="sm"
-            onClick={onSwitchToControl}
-          >
-            <Wrench className="w-4 h-4 mr-1" />
-            Control
-          </Button>
         </div>
       </div>
 
@@ -366,7 +364,10 @@ export function DesignView({ onSwitchToControl }: DesignViewProps) {
             <div className="flex-1 relative">
               {viewMode === '2d' ? (
                 <>
-                  <DesignCanvas className="w-full h-full" />
+                  <DesignCanvas 
+                    className="w-full h-full" 
+                    onRequestRotation={() => setViewMode('3d')}
+                  />
                   <BooleanToolbar />
                 </>
               ) : (
@@ -391,16 +392,27 @@ export function DesignView({ onSwitchToControl }: DesignViewProps) {
                   </Button>
                 </div>
                 {!machineConfig && (
-                  <p className="text-sm text-muted-foreground mt-4">
-                    <Button 
-                      variant="link" 
-                      className="p-0 h-auto"
-                      onClick={() => setShowMachineSetup(true)}
-                    >
-                      Set up your machine
-                    </Button>
-                    {' '}to configure workspace dimensions.
-                  </p>
+                  <div className="mt-6 p-4 bg-muted/50 rounded-lg max-w-md">
+                    <p className="text-sm text-muted-foreground mb-3">
+                      No machine configured yet. Set up your CNC to get started.
+                    </p>
+                    <div className="flex gap-2 justify-center">
+                      <Button 
+                        variant="default"
+                        size="sm"
+                        onClick={() => setShowQuickSetup(true)}
+                      >
+                        Quick Setup
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowMachineSetup(true)}
+                      >
+                        Advanced Setup
+                      </Button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -421,15 +433,10 @@ export function DesignView({ onSwitchToControl }: DesignViewProps) {
 
         <ResizableHandle 
           side="right" 
-          onResize={(delta) => setRightPanelWidth(w => Math.max(200, Math.min(400, w + delta)))} 
+          onResize={(delta) => setRightPanelWidth(w => Math.max(240, Math.min(400, w + delta)))} 
         />
-        <div className="border-l border-border flex flex-col" style={{ width: rightPanelWidth }}>
-          <div className="flex-1 overflow-hidden">
-            <LayersPanel />
-          </div>
-          <div className="h-64 border-t border-border">
-            <PropertiesPanel />
-          </div>
+        <div className="border-l border-border" style={{ width: rightPanelWidth }}>
+          <RightSidebar className="h-full" />
         </div>
       </div>
 
@@ -438,6 +445,20 @@ export function DesignView({ onSwitchToControl }: DesignViewProps) {
           config={machineConfig}
           onSave={handleSaveMachineConfig}
           onClose={() => setShowMachineSetup(false)}
+        />
+      )}
+
+      {showQuickSetup && (
+        <QuickSetupWizard
+          onClose={() => setShowQuickSetup(false)}
+          onComplete={(config) => {
+            setMachineConfig(config)
+            setShowQuickSetup(false)
+          }}
+          onAdvancedSetup={() => {
+            setShowQuickSetup(false)
+            setShowMachineSetup(true)
+          }}
         />
       )}
 
@@ -533,6 +554,113 @@ export function DesignView({ onSwitchToControl }: DesignViewProps) {
 
       {activeApp === 'halftone-generator' && (
         <HalftoneGenerator onClose={() => setActiveApp(null)} />
+      )}
+
+      {/* Carve Settings Panel - slides in from right */}
+      {showCarveSettings && project && (
+        <div className="fixed inset-0 z-50 flex">
+          <div 
+            className="flex-1 bg-black/50"
+            onClick={() => setShowCarveSettings(false)}
+          />
+          <CarveSettingsPanel
+            onPreviewCarve={() => {
+              setShowCarveSettings(false)
+              setShowCarvePreview(true)
+            }}
+            onStartCarve={() => {
+              setShowCarveSettings(false)
+              setShowPreCarveWizard(true)
+            }}
+            onEditBit={(tool) => {
+              setEditingBit(tool)
+              setShowBitEditor(true)
+            }}
+          />
+        </div>
+      )}
+
+      {/* Bit Editor Modal */}
+      {showBitEditor && (
+        <BitEditor
+          tool={editingBit}
+          onClose={() => {
+            setShowBitEditor(false)
+            setEditingBit(null)
+          }}
+          onSave={(tool) => {
+            const { tools, setTools } = useDesignStore.getState()
+            const existingIndex = tools.findIndex(t => t.id === tool.id)
+            if (existingIndex >= 0) {
+              const newTools = [...tools]
+              newTools[existingIndex] = tool
+              setTools(newTools)
+            } else {
+              setTools([...tools, tool])
+            }
+            setShowBitEditor(false)
+            setEditingBit(null)
+          }}
+          onDelete={(toolId) => {
+            const { tools, setTools } = useDesignStore.getState()
+            setTools(tools.filter(t => t.id !== toolId))
+            setShowBitEditor(false)
+            setEditingBit(null)
+          }}
+        />
+      )}
+
+      {/* Carve Preview */}
+      {showCarvePreview && (
+        <CarvePreview
+          materialWidth={carveSettings.materialWidth}
+          materialHeight={carveSettings.materialHeight}
+          materialThickness={carveSettings.materialThickness}
+          materialColor={carveSettings.materialColor}
+          roughingBit={useDesignStore.getState().tools.find(t => t.id === carveSettings.roughingBitId) || useDesignStore.getState().tools[0] || null}
+          finishingBit={useDesignStore.getState().tools.find(t => t.id === carveSettings.finishingBitId) || null}
+          useTwoBits={carveSettings.useTwoBits}
+          onClose={() => setShowCarvePreview(false)}
+          onStartCarve={() => {
+            setShowCarvePreview(false)
+            setShowPreCarveWizard(true)
+          }}
+        />
+      )}
+
+      {/* Pre-Carve Wizard */}
+      {showPreCarveWizard && (
+        <PreCarveWizard
+          roughingBit={useDesignStore.getState().tools.find(t => t.id === carveSettings.roughingBitId) || useDesignStore.getState().tools[0] || null}
+          finishingBit={useDesignStore.getState().tools.find(t => t.id === carveSettings.finishingBitId) || null}
+          useTwoBits={carveSettings.useTwoBits}
+          estimatedTime={30}
+          onClose={() => setShowPreCarveWizard(false)}
+          onStartCarve={() => {
+            setShowPreCarveWizard(false)
+            setShowExportDialog(true)
+          }}
+        />
+      )}
+
+      {/* Probe Module Dialog */}
+      {showProbeModule && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-lg shadow-xl w-[480px] max-h-[90vh] overflow-hidden">
+            <ProbeModule onClose={() => setShowProbeModule(false)} />
+          </div>
+        </div>
+      )}
+
+      {/* Material Preview Modal */}
+      {showMaterialPreview && (
+        <MaterialPreviewModal
+          onClose={() => setShowMaterialPreview(false)}
+          onProceedToManufacture={() => {
+            setShowMaterialPreview(false)
+            setWorkspaceMode('manufacture')
+          }}
+        />
       )}
     </div>
   )

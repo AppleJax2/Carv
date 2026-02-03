@@ -35,6 +35,13 @@ const electronAPI = {
     listPorts: (): Promise<SerialPort[]> => ipcRenderer.invoke('serial:list-ports'),
     connect: (portPath: string, baudRate: number) => ipcRenderer.invoke('serial:connect', portPath, baudRate),
     disconnect: () => ipcRenderer.invoke('serial:disconnect'),
+    startPortPolling: () => ipcRenderer.invoke('serial:start-port-polling'),
+    stopPortPolling: () => ipcRenderer.invoke('serial:stop-port-polling'),
+    onPortsChanged: (callback: (ports: SerialPort[]) => void) => {
+      const subscription = (_event: Electron.IpcRendererEvent, ports: SerialPort[]) => callback(ports)
+      ipcRenderer.on('serial:ports-changed', subscription)
+      return () => ipcRenderer.removeListener('serial:ports-changed', subscription)
+    },
   },
   grbl: {
     send: (command: string) => ipcRenderer.invoke('grbl:send', command),
@@ -89,6 +96,18 @@ const electronAPI = {
       ipcRenderer.on('update-error', subscription)
       return () => ipcRenderer.removeListener('update-error', subscription)
     },
+  },
+  auth: {
+    getState: () => ipcRenderer.invoke('auth:get-state'),
+    isLoggedIn: () => ipcRenderer.invoke('auth:is-logged-in'),
+    login: (email: string, password: string) => ipcRenderer.invoke('auth:login', email, password),
+    verify: () => ipcRenderer.invoke('auth:verify'),
+    refresh: () => ipcRenderer.invoke('auth:refresh'),
+    logout: () => ipcRenderer.invoke('auth:logout'),
+    canAccessOffline: () => ipcRenderer.invoke('auth:can-access-offline'),
+  },
+  shell: {
+    openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
   },
 }
 

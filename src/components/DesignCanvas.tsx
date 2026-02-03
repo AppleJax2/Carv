@@ -8,9 +8,10 @@ import { cn } from '@/lib/utils'
 
 interface CanvasProps {
   className?: string
+  onRequestRotation?: () => void
 }
 
-export function DesignCanvas({ className }: CanvasProps) {
+export function DesignCanvas({ className, onRequestRotation }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   
@@ -121,7 +122,21 @@ export function DesignCanvas({ className }: CanvasProps) {
   const handleMouseDown = (e: React.MouseEvent) => {
     const pos = screenToCanvas(e.clientX, e.clientY)
 
-    if (e.button === 1 || (e.button === 0 && activeTool === 'pan')) {
+    // MMB without shift = request rotation (switch to 3D mode)
+    // MMB with shift OR pan tool = pan
+    if (e.button === 1) {
+      if (e.shiftKey) {
+        // Shift+MMB = pan
+        setIsPanning(true)
+        setDragStart({ x: e.clientX - viewTransform.x, y: e.clientY - viewTransform.y })
+      } else {
+        // MMB without shift = request rotation (triggers 3D mode)
+        onRequestRotation?.()
+      }
+      return
+    }
+    
+    if (e.button === 0 && activeTool === 'pan') {
       setIsPanning(true)
       setDragStart({ x: e.clientX - viewTransform.x, y: e.clientY - viewTransform.y })
       return
@@ -381,7 +396,11 @@ export function DesignCanvas({ className }: CanvasProps) {
 }
 
 function drawGrid(ctx: CanvasRenderingContext2D, width: number, height: number, gridSize: number) {
-  ctx.strokeStyle = '#1e3a5f'
+  // Light theme grid colors for good contrast on light backgrounds
+  const minorGridColor = '#d1d5db' // Light gray for minor grid
+  const majorGridColor = '#9ca3af' // Medium gray for major grid
+  
+  ctx.strokeStyle = minorGridColor
   ctx.lineWidth = 0.5
 
   for (let x = 0; x <= width; x += gridSize) {
@@ -398,7 +417,7 @@ function drawGrid(ctx: CanvasRenderingContext2D, width: number, height: number, 
     ctx.stroke()
   }
 
-  ctx.strokeStyle = '#2563eb'
+  ctx.strokeStyle = majorGridColor
   ctx.lineWidth = 1
   const majorGrid = gridSize * 5
 

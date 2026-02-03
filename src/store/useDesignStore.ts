@@ -6,6 +6,7 @@ import type {
   Toolpath
 } from '@/types/design'
 import type { MachineConfig, Tool, Material } from '@/types/machine'
+import { DEFAULT_TOOL_LIBRARY } from '@/lib/defaultToolLibrary'
 
 interface DesignState {
   project: Project | null
@@ -132,7 +133,7 @@ const createDefaultProject = (name: string, width: number, height: number): Proj
     gridSize: 10,
     snapToGrid: true,
     showGrid: true,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#f8fafc', // Light background for better contrast
   },
   layers: [
     {
@@ -156,7 +157,7 @@ const createDefaultProject = (name: string, width: number, height: number): Proj
 export const useDesignStore = create<DesignState>((set, get) => ({
   project: null,
   machineConfig: null,
-  tools: [],
+  tools: DEFAULT_TOOL_LIBRARY,
   materials: [],
   selectedObjectIds: [],
   activeLayerId: 'default',

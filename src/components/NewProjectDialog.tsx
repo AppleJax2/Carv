@@ -11,7 +11,8 @@ import {
   Cpu,
   PenLine,
   Settings2,
-  ChevronRight
+  ChevronRight,
+  Plus
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -38,7 +39,7 @@ const roundForUnit = (value: number, unit: 'mm' | 'inch'): number => {
 }
 
 export function NewProjectDialog({ onClose, onCreated }: NewProjectDialogProps) {
-  const { createNewProject } = useDesignStore()
+  const { createNewProject, setShowMachineSetup } = useDesignStore()
   const { 
     savedMachines, 
     newProjectDefaults,
@@ -202,10 +203,22 @@ export function NewProjectDialog({ onClose, onCreated }: NewProjectDialogProps) 
                 {savedMachines.length === 0 ? (
                   <div className="p-4 bg-muted/50 rounded-lg text-center">
                     <Settings2 className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                    <p className="text-sm text-muted-foreground mb-2">No machines configured yet</p>
-                    <p className="text-xs text-muted-foreground">
-                      Go to Machine Setup to add your CNC machine, or use manual dimensions.
-                    </p>
+                    <p className="text-sm text-muted-foreground mb-3">No machines configured yet</p>
+                    <button
+                      onClick={() => {
+                        onClose()
+                        setShowMachineSetup(true)
+                      }}
+                      className={cn(
+                        'inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium',
+                        'bg-primary text-primary-foreground',
+                        'hover:bg-primary/90 active:bg-primary/80',
+                        'transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50'
+                      )}
+                    >
+                      <Plus className="w-4 h-4" />
+                      Configure Machine
+                    </button>
                   </div>
                 ) : (
                   <div className="space-y-1">

@@ -4,7 +4,7 @@ import { Button } from './ui/button'
 import { 
   Settings2, Cpu, Crosshair, Gauge, 
   ArrowUpDown, Save, ChevronRight,
-  Box, Home, AlertTriangle
+  Box, Home, AlertTriangle, Ruler
 } from 'lucide-react'
 import { 
   MachineConfig, 
@@ -13,6 +13,26 @@ import {
   PostProcessorConfig 
 } from '@/types/machine'
 import { cn } from '@/lib/utils'
+
+type DisplayUnit = 'mm' | 'in'
+
+// Unit conversion helpers
+const mmToInch = (mm: number): number => mm / 25.4
+const inchToMm = (inches: number): number => inches * 25.4
+
+const formatForDisplay = (mm: number, unit: DisplayUnit, decimals: number = 1): number => {
+  if (unit === 'in') {
+    return Math.round(mmToInch(mm) * Math.pow(10, decimals)) / Math.pow(10, decimals)
+  }
+  return Math.round(mm * Math.pow(10, decimals)) / Math.pow(10, decimals)
+}
+
+const parseFromDisplay = (value: number, unit: DisplayUnit): number => {
+  if (unit === 'in') {
+    return inchToMm(value)
+  }
+  return value
+}
 
 interface MachineSetupProps {
   config: MachineConfig | null
@@ -24,6 +44,7 @@ type SetupTab = 'workspace' | 'axes' | 'spindle' | 'homing' | 'probe' | 'post'
 
 export function MachineSetup({ config, onSave, onClose }: MachineSetupProps) {
   const [activeTab, setActiveTab] = useState<SetupTab>('workspace')
+  const [displayUnit, setDisplayUnit] = useState<DisplayUnit>('mm')
   const [machineConfig, setMachineConfig] = useState<Partial<MachineConfig>>(
     config || {
       name: 'My CNC Machine',
@@ -121,7 +142,12 @@ export function MachineSetup({ config, onSave, onClose }: MachineSetupProps) {
 
           <CardContent className="flex-1 overflow-y-auto p-6">
             {activeTab === 'workspace' && (
-              <WorkspaceTab config={machineConfig} updateConfig={updateConfig} />
+              <WorkspaceTab 
+                config={machineConfig} 
+                updateConfig={updateConfig} 
+                displayUnit={displayUnit}
+                setDisplayUnit={setDisplayUnit}
+              />
             )}
             {activeTab === 'axes' && (
               <AxesTab config={machineConfig} updateConfig={updateConfig} />
@@ -150,8 +176,16 @@ interface TabProps {
   updateConfig: <K extends keyof MachineConfig>(key: K, value: MachineConfig[K]) => void
 }
 
-function WorkspaceTab({ config, updateConfig }: TabProps) {
+interface WorkspaceTabProps extends TabProps {
+  displayUnit: DisplayUnit
+  setDisplayUnit: (unit: DisplayUnit) => void
+}
+
+function WorkspaceTab({ config, updateConfig, displayUnit, setDisplayUnit }: WorkspaceTabProps) {
   const workspace = config.workspace || { width: 300, depth: 300, height: 100, originPosition: 'front-left' as const }
+  
+  const unitLabel = displayUnit === 'mm' ? 'mm' : 'in'
+  const unitStep = displayUnit === 'mm' ? 10 : 0.5
 
   return (
     <div className="space-y-6">
@@ -166,34 +200,65 @@ function WorkspaceTab({ config, updateConfig }: TabProps) {
         />
       </div>
 
+      {/* Unit Toggle */}
+      <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+        <div className="flex items-center gap-2">
+          <Ruler className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Display Units</span>
+        </div>
+        <div className="flex rounded-md border border-border overflow-hidden">
+          <button
+            onClick={() => setDisplayUnit('mm')}
+            className={cn(
+              "px-4 py-1.5 text-sm transition-colors",
+              displayUnit === 'mm' ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+            )}
+          >
+            Millimeters
+          </button>
+          <button
+            onClick={() => setDisplayUnit('in')}
+            className={cn(
+              "px-4 py-1.5 text-sm transition-colors",
+              displayUnit === 'in' ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+            )}
+          >
+            Inches
+          </button>
+        </div>
+      </div>
+
       <div>
         <h3 className="text-lg font-semibold mb-4">Workspace Dimensions</h3>
         <div className="grid grid-cols-3 gap-4">
           <div className="space-y-2">
-            <label className="text-sm text-muted-foreground">Width (X) mm</label>
+            <label className="text-sm text-muted-foreground">Width (X) {unitLabel}</label>
             <input
               type="number"
-              value={workspace.width}
-              onChange={(e) => updateConfig('workspace', { ...workspace, width: Number(e.target.value) })}
+              value={formatForDisplay(workspace.width, displayUnit)}
+              onChange={(e) => updateConfig('workspace', { ...workspace, width: parseFromDisplay(Number(e.target.value), displayUnit) })}
               className="w-full h-10 px-3 rounded-md bg-secondary border border-input"
+              step={unitStep}
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm text-muted-foreground">Depth (Y) mm</label>
+            <label className="text-sm text-muted-foreground">Depth (Y) {unitLabel}</label>
             <input
               type="number"
-              value={workspace.depth}
-              onChange={(e) => updateConfig('workspace', { ...workspace, depth: Number(e.target.value) })}
+              value={formatForDisplay(workspace.depth, displayUnit)}
+              onChange={(e) => updateConfig('workspace', { ...workspace, depth: parseFromDisplay(Number(e.target.value), displayUnit) })}
               className="w-full h-10 px-3 rounded-md bg-secondary border border-input"
+              step={unitStep}
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm text-muted-foreground">Height (Z) mm</label>
+            <label className="text-sm text-muted-foreground">Height (Z) {unitLabel}</label>
             <input
               type="number"
-              value={workspace.height}
-              onChange={(e) => updateConfig('workspace', { ...workspace, height: Number(e.target.value) })}
+              value={formatForDisplay(workspace.height, displayUnit)}
+              onChange={(e) => updateConfig('workspace', { ...workspace, height: parseFromDisplay(Number(e.target.value), displayUnit) })}
               className="w-full h-10 px-3 rounded-md bg-secondary border border-input"
+              step={unitStep}
             />
           </div>
         </div>

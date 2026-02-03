@@ -68,6 +68,10 @@ class SerialManager {
     this.port = null;
     this.parser = null;
     this.dataCallback = null;
+    this.portChangeCallback = null;
+    this.pollingInterval = null;
+    this.lastPortCount = 0;
+    this.lastPortPaths = [];
   }
   async listPorts() {
     const ports = await serialport.SerialPort.list();
@@ -81,6 +85,40 @@ class SerialManager {
       vendorId: port.vendorId,
       productId: port.productId
     }));
+  }
+  /**
+   * Start polling for port changes (USB hotplug detection)
+   * Polls every 2 seconds and notifies if ports change
+   */
+  startPortPolling(callback) {
+    this.portChangeCallback = callback;
+    this.checkForPortChanges();
+    this.pollingInterval = setInterval(() => {
+      this.checkForPortChanges();
+    }, 2e3);
+  }
+  stopPortPolling() {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
+    }
+    this.portChangeCallback = null;
+  }
+  async checkForPortChanges() {
+    try {
+      const ports = await this.listPorts();
+      const currentPaths = ports.map((p) => p.path).sort();
+      const portsChanged = currentPaths.length !== this.lastPortPaths.length || currentPaths.some((path2, i) => path2 !== this.lastPortPaths[i]);
+      if (portsChanged) {
+        this.lastPortPaths = currentPaths;
+        this.lastPortCount = ports.length;
+        if (this.portChangeCallback) {
+          this.portChangeCallback(ports);
+        }
+      }
+    } catch (error) {
+      console.error("Error checking for port changes:", error);
+    }
   }
   async connect(portPath, baudRate = 115200) {
     var _a;
@@ -527,10 +565,156 @@ class Store {
     }
   }
 }
+const API_BASE_URL = process.env.CARV_API_URL || "https://carvapp.netlify.app";
+const defaultAuthState = {
+  token: null,
+  user: null,
+  lastVerified: null
+};
+class AuthStore {
+  constructor() {
+    this.store = new ElectronStore({
+      defaults: {
+        auth: defaultAuthState
+      },
+      name: "carv-auth",
+      encryptionKey: "carv-secure-auth-key"
+      // Basic encryption for token storage
+    });
+  }
+  getAuthState() {
+    return this.store.get("auth");
+  }
+  setAuthState(state) {
+    this.store.set("auth", state);
+  }
+  clearAuth() {
+    this.store.set("auth", defaultAuthState);
+  }
+  isLoggedIn() {
+    const state = this.getAuthState();
+    return !!state.token && !!state.user;
+  }
+  // Check if we should allow offline access (verified within last 24 hours)
+  canAccessOffline() {
+    const state = this.getAuthState();
+    if (!state.token || !state.lastVerified) return false;
+    const offlineGracePeriod = 24 * 60 * 60 * 1e3;
+    return Date.now() - state.lastVerified < offlineGracePeriod;
+  }
+  async login(email, password, machineId) {
+    try {
+      const response = await this.makeRequest("/api/auth/desktop/login", {
+        email,
+        password,
+        machineId
+      });
+      if (response.success && response.token && response.user) {
+        this.setAuthState({
+          token: response.token,
+          user: response.user,
+          lastVerified: Date.now()
+        });
+        return { success: true, user: response.user };
+      }
+      return { success: false, message: response.message || "Login failed" };
+    } catch (error) {
+      console.error("Login error:", error);
+      return { success: false, message: "Network error. Please check your connection." };
+    }
+  }
+  async verifyToken() {
+    const state = this.getAuthState();
+    if (!state.token) {
+      return { valid: false, message: "No token stored" };
+    }
+    try {
+      const response = await this.makeRequest("/api/auth/desktop/verify", {
+        token: state.token
+      });
+      if (response.valid && response.user) {
+        this.setAuthState({
+          ...state,
+          user: response.user,
+          lastVerified: Date.now()
+        });
+        return { valid: true, user: response.user };
+      }
+      this.clearAuth();
+      return { valid: false, message: response.message || "Token invalid" };
+    } catch (error) {
+      console.error("Token verification error:", error);
+      if (this.canAccessOffline()) {
+        return { valid: true, user: state.user };
+      }
+      return { valid: false, message: "Network error. Please check your connection." };
+    }
+  }
+  async refreshToken() {
+    const state = this.getAuthState();
+    if (!state.token) {
+      return { success: false, message: "No token to refresh" };
+    }
+    try {
+      const response = await this.makeRequest("/api/auth/desktop/refresh", {
+        token: state.token
+      });
+      if (response.success && response.token && response.user) {
+        this.setAuthState({
+          token: response.token,
+          user: response.user,
+          lastVerified: Date.now()
+        });
+        return { success: true, user: response.user };
+      }
+      this.clearAuth();
+      return { success: false, message: response.message || "Token refresh failed" };
+    } catch (error) {
+      console.error("Token refresh error:", error);
+      return { success: false, message: "Network error. Please check your connection." };
+    }
+  }
+  logout() {
+    this.clearAuth();
+  }
+  async makeRequest(endpoint, body) {
+    return new Promise((resolve, reject) => {
+      const url = `${API_BASE_URL}${endpoint}`;
+      const request = electron.net.request({
+        method: "POST",
+        url
+      });
+      request.setHeader("Content-Type", "application/json");
+      let responseData = "";
+      request.on("response", (response) => {
+        response.on("data", (chunk) => {
+          responseData += chunk.toString();
+        });
+        response.on("end", () => {
+          try {
+            const parsed = JSON.parse(responseData);
+            resolve(parsed);
+          } catch {
+            reject(new Error("Invalid JSON response"));
+          }
+        });
+        response.on("error", (error) => {
+          reject(error);
+        });
+      });
+      request.on("error", (error) => {
+        reject(error);
+      });
+      request.write(JSON.stringify(body));
+      request.end();
+    });
+  }
+}
 let mainWindow = null;
 let serialManager;
 let grblController = null;
 let store;
+let authStore;
 const isDev = process.env.NODE_ENV === "development" || !electron.app.isPackaged;
 function createWindow() {
   mainWindow = new electron.BrowserWindow({
@@ -577,6 +761,16 @@ function setupAutoUpdater() {
 function setupIPC() {
   electron.ipcMain.handle("serial:list-ports", async () => {
     return serialManager.listPorts();
+  });
+  electron.ipcMain.handle("serial:start-port-polling", async () => {
+    serialManager.startPortPolling((ports) => {
+      mainWindow == null ? void 0 : mainWindow.webContents.send("serial:ports-changed", ports);
+    });
+    return { success: true };
+  });
+  electron.ipcMain.handle("serial:stop-port-polling", async () => {
+    serialManager.stopPortPolling();
+    return { success: true };
   });
   electron.ipcMain.handle("serial:connect", async (_, portPath, baudRate) => {
     try {
@@ -717,10 +911,69 @@ function setupIPC() {
   electron.ipcMain.handle("updater:install", async () => {
     electronUpdater.autoUpdater.quitAndInstall();
   });
+  electron.ipcMain.handle("auth:get-state", async () => {
+    return authStore.getAuthState();
+  });
+  electron.ipcMain.handle("auth:is-logged-in", async () => {
+    return authStore.isLoggedIn();
+  });
+  electron.ipcMain.handle("auth:login", async (_, email, password) => {
+    const machineId = getMachineId();
+    return authStore.login(email, password, machineId);
+  });
+  electron.ipcMain.handle("auth:verify", async () => {
+    return authStore.verifyToken();
+  });
+  electron.ipcMain.handle("auth:refresh", async () => {
+    return authStore.refreshToken();
+  });
+  electron.ipcMain.handle("auth:logout", async () => {
+    authStore.logout();
+    return { success: true };
+  });
+  electron.ipcMain.handle("auth:can-access-offline", async () => {
+    return authStore.canAccessOffline();
+  });
+  electron.ipcMain.handle("shell:open-external", async (_, url) => {
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      await electron.shell.openExternal(url);
+      return { success: true };
+    }
+    return { success: false, error: "Invalid URL protocol" };
+  });
+}
+function getMachineId() {
+  var _a;
+  const os = require("os");
+  const crypto = require("crypto");
+  const cpus = os.cpus();
+  const networkInterfaces = os.networkInterfaces();
+  let macAddress = "unknown";
+  for (const interfaces of Object.values(networkInterfaces)) {
+    if (interfaces) {
+      for (const iface of interfaces) {
+        if (!iface.internal && iface.mac && iface.mac !== "00:00:00:00:00:00") {
+          macAddress = iface.mac;
+          break;
+        }
+      }
+    }
+    if (macAddress !== "unknown") break;
+  }
+  const fingerprint = [
+    os.hostname(),
+    os.platform(),
+    os.arch(),
+    ((_a = cpus[0]) == null ? void 0 : _a.model) || "unknown",
+    macAddress
+  ].join("|");
+  return crypto.createHash("sha256").update(fingerprint).digest("hex").substring(0, 32);
 }
 electron.app.whenReady().then(() => {
   store = new Store();
+  authStore = new AuthStore();
   serialManager = new SerialManager();
+  electron.Menu.setApplicationMenu(null);
   setupIPC();
   setupAutoUpdater();
   createWindow();

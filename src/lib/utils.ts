@@ -20,6 +20,48 @@ export function formatNumber(value: number, decimals: number = 3): string {
   return value.toFixed(decimals)
 }
 
+/**
+ * Format a dimension value with proper rounding and unit display
+ * Handles floating point precision issues (e.g., 609.5999999999999 -> 609.6)
+ */
+export function formatDimension(
+  value: number, 
+  unit: 'mm' | 'inch' = 'mm',
+  options?: {
+    showUnit?: boolean
+    decimals?: number
+  }
+): string {
+  const { showUnit = true, decimals } = options || {}
+  
+  // Determine decimal places based on unit if not specified
+  const decimalPlaces = decimals ?? (unit === 'mm' ? 1 : 3)
+  
+  // Round to avoid floating point precision issues
+  const rounded = Math.round(value * Math.pow(10, decimalPlaces)) / Math.pow(10, decimalPlaces)
+  
+  // Format the number
+  const formatted = rounded.toFixed(decimalPlaces)
+  
+  // Remove trailing zeros after decimal point for cleaner display
+  const cleaned = formatted.replace(/\.?0+$/, '') || '0'
+  
+  if (showUnit) {
+    return unit === 'mm' ? `${cleaned} mm` : `${cleaned}"`
+  }
+  
+  return cleaned
+}
+
+/**
+ * Convert between mm and inches
+ */
+export function convertUnit(value: number, from: 'mm' | 'inch', to: 'mm' | 'inch'): number {
+  if (from === to) return value
+  if (from === 'mm' && to === 'inch') return value / 25.4
+  return value * 25.4 // inch to mm
+}
+
 export function parseGcodeFile(content: string): string[] {
   return content
     .split('\n')

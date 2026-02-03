@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useStore } from '@/store/useStore'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
@@ -20,16 +20,27 @@ export function ConnectionDialog() {
 
   const BAUD_RATES = [9600, 19200, 38400, 57600, 115200, 230400]
 
+  const handlePortsChanged = useCallback((newPorts: SerialPort[]) => {
+    setPorts(newPorts)
+    
+    // If currently selected port disappeared, clear selection
+    if (selectedPort && !newPorts.find(p => p.path === selectedPort)) {
+      setSelectedPort(newPorts.length > 0 ? newPorts[0].path : '')
+    }
+    
+    // Auto-select first port if none selected
+    if (!selectedPort && newPorts.length > 0) {
+      setSelectedPort(newPorts[0].path)
+    }
+  }, [selectedPort])
+
   const scanPorts = async () => {
     if (!window.electronAPI) return
     
     setIsScanning(true)
     try {
       const portList = await window.electronAPI.serial.listPorts()
-      setPorts(portList)
-      if (portList.length > 0 && !selectedPort) {
-        setSelectedPort(portList[0].path)
-      }
+      handlePortsChanged(portList)
     } catch (err) {
       setError('Failed to scan ports')
     } finally {
@@ -38,8 +49,23 @@ export function ConnectionDialog() {
   }
 
   useEffect(() => {
+    if (!window.electronAPI) return
+
+    // Initial scan
     scanPorts()
-  }, [])
+    
+    // Start automatic port polling for USB hotplug detection
+    window.electronAPI.serial.startPortPolling()
+    
+    // Subscribe to port change events
+    const unsubscribe = window.electronAPI.serial.onPortsChanged(handlePortsChanged)
+    
+    // Cleanup on unmount
+    return () => {
+      unsubscribe()
+      window.electronAPI?.serial.stopPortPolling()
+    }
+  }, [handlePortsChanged])
 
   const handleConnect = async () => {
     if (!window.electronAPI || !selectedPort) return

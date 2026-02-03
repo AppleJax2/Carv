@@ -14,10 +14,12 @@ import { DesignView } from '@/components/DesignView'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Settings, Cpu, PenTool } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { AuthProvider } from '@/contexts/AuthContext'
+import { AuthGate } from '@/components/AuthGate'
 
 type AppMode = 'design' | 'control'
 
-function App() {
+function AppContent() {
   const [mode, setMode] = useState<AppMode>('design')
   const { currentTheme } = useThemeStore()
   
@@ -108,6 +110,17 @@ function App() {
         <Console />
       </div>
     </TooltipProvider>
+  )
+}
+
+// Main App component with auth wrapper
+function App() {
+  return (
+    <AuthProvider>
+      <AuthGate>
+        <AppContent />
+      </AuthGate>
+    </AuthProvider>
   )
 }
 
