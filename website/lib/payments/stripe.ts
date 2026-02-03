@@ -7,9 +7,31 @@ import {
   updateTeamSubscription
 } from '@/lib/db/queries';
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-08-27.basil'
-});
+// Lazy initialization to avoid build errors when STRIPE_SECRET_KEY is not set
+let _stripe: Stripe | null = null;
+
+export function getStripe(): Stripe {
+  if (!_stripe) {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) {
+      throw new Error('STRIPE_SECRET_KEY environment variable is not set');
+    }
+    _stripe = new Stripe(key, {
+      apiVersion: '2025-08-27.basil'
+    });
+  }
+  return _stripe;
+}
+
+// Keep for backwards compatibility but use lazy getter
+export const stripe = {
+  get checkout() { return getStripe().checkout; },
+  get billingPortal() { return getStripe().billingPortal; },
+  get products() { return getStripe().products; },
+  get prices() { return getStripe().prices; },
+  get subscriptions() { return getStripe().subscriptions; },
+  get customers() { return getStripe().customers; },
+};
 
 export async function createCheckoutSession({
   team,
